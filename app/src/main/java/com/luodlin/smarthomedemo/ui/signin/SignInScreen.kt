@@ -19,21 +19,31 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.DeliveryDining
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -54,17 +64,53 @@ sealed interface SignInType {
     object PhoneCode : SignInType
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@Composable
+fun SignInScreen(viewModel: SignInViewModel) {
+    val uiStateState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(uiStateState) {
+        uiStateState.errorMessages?.let {
+            keyboardController?.hide()
+            snackbarHostState.showSnackbar(
+                message = it, withDismissAction = true, duration = SnackbarDuration.Short
+            )
+        }
+    }
+
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { paddingValues ->
+        Surface(modifier = Modifier.padding(paddingValues)) {
+            SignInScreen(
+                signIn = { u, p, t ->
+                    keyboardController?.hide()
+                    viewModel.signIn(u, p, t)
+                },
+                fetchPhoneCode = { viewModel.fetchPhoneCode(it) },
+                signInState = uiStateState.signInUiState,
+                fetchPhoneCodeState = uiStateState.fetchPhoneCodeState
+            )
+        }
+    }
+
+}
+
+
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun SignInScreen(
     signIn: (String, String, Int) -> Unit,
-    signState: State<Nothing>,
-    getPhoneCode: () -> Unit,
-    getPhoneCodeState: State<Nothing>
+    signInState: State,
+    fetchPhoneCode: (String) -> Unit,
+    fetchPhoneCodeState: State
 ) {
     val phoneTextFieldState: TextFieldState = remember { PhoneTextFieldState() }
     val codeTextFieldState: TextFieldState = remember { CodeTextFieldState() }
     val passwordTextFieldState: TextFieldState = remember { PasswordTextFieldState() }
     var signInType: SignInType by remember { mutableStateOf(SignInType.PhoneCode) }
+
+
+
     SignInScreen(
         phoneTextFieldState = phoneTextFieldState,
         codeTextFieldState = codeTextFieldState,
@@ -75,15 +121,28 @@ fun SignInScreen(
             else if (odlSignInType == SignInType.Password) signInType = SignInType.PhoneCode
         },
         signIn = {
-            if (signInType == SignInType.Password) {
-                signIn(phoneTextFieldState.text, passwordTextFieldState.text, 1)
-            } else if (signInType == SignInType.PhoneCode) {
-                signIn(phoneTextFieldState.text, codeTextFieldState.text, 0)
+            if (signInState != State.Loading) {
+                phoneTextFieldState.enableShowErrors()
+                codeTextFieldState.enableShowErrors()
+                passwordTextFieldState.enableShowErrors()
+                if (phoneTextFieldState.isValid) {
+                    if (signInType == SignInType.Password) {
+                        if (passwordTextFieldState.isValid) {
+                            signIn(phoneTextFieldState.text, passwordTextFieldState.text, 1)
+                        }
+                    } else if (signInType == SignInType.PhoneCode) {
+                        if (codeTextFieldState.isValid) {
+                            signIn(phoneTextFieldState.text, codeTextFieldState.text, 2)
+                        }
+                    }
+                }
             }
         },
-        signState = signState,
-        getPhoneCode = getPhoneCode,
-        getPhoneCodeState = getPhoneCodeState
+        signInState = signInState,
+        fetchPhoneCode = {
+            fetchPhoneCode(phoneTextFieldState.text)
+        },
+        fetchPhoneCodeState = fetchPhoneCodeState
 
     )
 
@@ -95,11 +154,11 @@ fun SignInScreen(
     codeTextFieldState: TextFieldState,
     passwordTextFieldState: TextFieldState,
     signIn: () -> Unit,
-    signState: State<Nothing>,
+    signInState: State,
     signInType: SignInType,
     switchSignInType: (odlSignInType: SignInType) -> Unit,
-    getPhoneCode: () -> Unit,
-    getPhoneCodeState: State<Nothing>
+    fetchPhoneCode: () -> Unit,
+    fetchPhoneCodeState: State
 ) {
     Column(
         modifier = Modifier
@@ -114,26 +173,26 @@ fun SignInScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        //账号输入框
+
         PhoneTextField(textFieldState = phoneTextFieldState)
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        if (signInType is SignInType.PhoneCode) {//验证码登录
+        if (signInType is SignInType.PhoneCode) {
             CodeTextField(
                 textFieldState = codeTextFieldState,
-                getPhoneCode = getPhoneCode,              //获取验证码
-                getPhoneCodeState = getPhoneCodeState,//获取验证码状态
-                signIn = signIn //登录
+                fetchPhoneCode = fetchPhoneCode,
+                getPhoneCodeState = fetchPhoneCodeState,
+                signIn = signIn
             )
-        } else if (signInType is SignInType.Password) { //密码登录
+        } else if (signInType is SignInType.Password) {
             PasswordTextField(textFieldState = passwordTextFieldState, signIn = signIn)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
         Button(onClick = signIn, modifier = Modifier.fillMaxWidth()) {
             Row {
-                if (signState == State.Loading) {
+                if (signInState == State.Loading) {
                     CircularProgressIndicator(
                         strokeWidth = 2.dp,
                         modifier = Modifier
@@ -300,15 +359,15 @@ class CodeTextFieldState :
 fun CodeTextField(
     modifier: Modifier = Modifier,
     textFieldState: TextFieldState = CodeTextFieldState(),
-    getPhoneCodeState: State<Nothing> = State.None,
-    getPhoneCode: () -> Unit = {},
+    getPhoneCodeState: State = State.None,
+    fetchPhoneCode: () -> Unit = {},
     signIn: () -> Unit = {}
 ) {
     CodeTextField(
         modifier = modifier,
         textFieldState = textFieldState,
         getPhoneCodeState = getPhoneCodeState,
-        getPhoneCode = getPhoneCode,
+        fetchPhoneCode = fetchPhoneCode,
         imeAction = ImeAction.Done,
         keyboardActions = KeyboardActions(onDone = {
             textFieldState.enableShowErrors()
@@ -325,8 +384,8 @@ fun CodeTextField(
     label: String = stringResource(id = R.string.phoneCode),
     imeAction: ImeAction,
     keyboardActions: KeyboardActions,
-    getPhoneCode: () -> Unit = {},
-    getPhoneCodeState: State<Nothing> = State.None
+    fetchPhoneCode: () -> Unit = {},
+    getPhoneCodeState: State = State.None
 ) {
     var remainingTime by remember { mutableStateOf(0) }
     val resources = LocalContext.current.resources
@@ -336,7 +395,7 @@ fun CodeTextField(
         )
     }
     LaunchedEffect(getPhoneCodeState) {
-        if (getPhoneCodeState is State.Success) {
+        if (getPhoneCodeState == State.Success && remainingTime == 0) {
             remainingTime = 60
             launch {
                 while (remainingTime > 0) {
@@ -345,7 +404,6 @@ fun CodeTextField(
                     remainingTime--
                 }
                 showText = resources.getString(R.string.resend)
-
             }
         }
     }
@@ -358,7 +416,7 @@ fun CodeTextField(
         trailingIcon = {
             TextButton(
                 modifier = Modifier.padding(end = 5.dp),
-                onClick = { getPhoneCode() },
+                onClick = { fetchPhoneCode() },
                 enabled = getPhoneCodeState != State.Loading && remainingTime == 0,
                 shape = RoundedCornerShape(5.dp)
             ) {
@@ -368,7 +426,6 @@ fun CodeTextField(
                         modifier = Modifier.size(22.dp),
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.width(20.dp))
                 } else {
                     Text(showText)
                 }

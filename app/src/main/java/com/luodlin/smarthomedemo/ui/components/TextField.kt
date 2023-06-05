@@ -44,7 +44,7 @@ fun TextField(
         visualTransformation = visualTransformation,
         isError = textFieldState.isError,
         supportingText = {
-//            uiState.getError()?.let { TextFieldError(textError = it) }
+            textFieldState.getError()?.let { Text(text = it) }
         },
         keyboardOptions = KeyboardOptions(
             imeAction = imeAction, keyboardType = keyboardType
