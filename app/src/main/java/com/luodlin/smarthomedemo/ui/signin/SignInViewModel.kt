@@ -8,17 +8,11 @@ import com.luodlin.smarthomedemo.data.Result
 import com.luodlin.smarthomedemo.data.repository.sign.SignInRepository
 import com.luodlin.smarthomedemo.ui.State
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-
-data class SignInUiState(
-    val signInUiState: State, val fetchPhoneCodeState: State, val errorMessages: String?
-)
 
 
 class SignInViewModel(private val signInRepository: SignInRepository) : ViewModel() {
@@ -103,5 +97,9 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
             }
         }
     }
+
+    data class SignInUiState(
+        val signInUiState: State, val fetchPhoneCodeState: State, val errorMessages: String?
+    )
 
 }
