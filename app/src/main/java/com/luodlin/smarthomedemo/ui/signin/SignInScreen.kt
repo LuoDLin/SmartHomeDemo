@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
@@ -36,7 +35,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,18 +49,28 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ldl.ouc_iot.ui.components.TextFieldState
+import com.luodlin.smarthomedemo.AppContainer
 import com.luodlin.smarthomedemo.R
 import com.luodlin.smarthomedemo.ui.State
 import com.luodlin.smarthomedemo.ui.components.TextField
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.regex.Pattern
 
 sealed interface SignInType {
     object Password : SignInType
     object PhoneCode : SignInType
 }
+
+
+@Composable
+fun SignInScreen(container: AppContainer) {
+    val viewModel =
+        viewModel<SignInViewModel>(factory = SignInViewModel.provideFactory(container.signInRepository))
+    SignInScreen(viewModel)
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -71,14 +79,13 @@ fun SignInScreen(viewModel: SignInViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     val keyboardController = LocalSoftwareKeyboardController.current
     LaunchedEffect(uiStateState) {
-        uiStateState.errorMessages?.let {
+        uiStateState.message?.let {
             keyboardController?.hide()
             snackbarHostState.showSnackbar(
                 message = it, withDismissAction = true, duration = SnackbarDuration.Short
             )
         }
     }
-
     Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { paddingValues ->
         Surface(modifier = Modifier.padding(paddingValues)) {
             SignInScreen(
@@ -96,7 +103,6 @@ fun SignInScreen(viewModel: SignInViewModel) {
 }
 
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun SignInScreen(
     signIn: (String, String, Int) -> Unit,
@@ -108,8 +114,6 @@ fun SignInScreen(
     val codeTextFieldState: TextFieldState = remember { CodeTextFieldState() }
     val passwordTextFieldState: TextFieldState = remember { PasswordTextFieldState() }
     var signInType: SignInType by remember { mutableStateOf(SignInType.PhoneCode) }
-
-
 
     SignInScreen(
         phoneTextFieldState = phoneTextFieldState,
@@ -140,7 +144,10 @@ fun SignInScreen(
         },
         signInState = signInState,
         fetchPhoneCode = {
-            fetchPhoneCode(phoneTextFieldState.text)
+            phoneTextFieldState.enableShowErrors()
+            if (phoneTextFieldState.isValid) {
+                fetchPhoneCode(phoneTextFieldState.text)
+            }
         },
         fetchPhoneCodeState = fetchPhoneCodeState
 
@@ -158,8 +165,20 @@ fun SignInScreen(
     signInType: SignInType,
     switchSignInType: (odlSignInType: SignInType) -> Unit,
     fetchPhoneCode: () -> Unit,
-    fetchPhoneCodeState: State
+    fetchPhoneCodeState: State,
+    maxRemainTime: Int = 60
 ) {
+    var remainTime by rememberSaveable { mutableStateOf(0) }
+    LaunchedEffect(fetchPhoneCodeState) {
+        if (fetchPhoneCodeState == State.Success) {
+            remainTime = maxRemainTime
+            while (remainTime > 0) {
+                delay(1000)
+                remainTime--
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -182,8 +201,9 @@ fun SignInScreen(
             CodeTextField(
                 textFieldState = codeTextFieldState,
                 fetchPhoneCode = fetchPhoneCode,
-                getPhoneCodeState = fetchPhoneCodeState,
-                signIn = signIn
+                fetchPhoneCodeState = fetchPhoneCodeState,
+                signIn = signIn,
+                remainTime = remainTime
             )
         } else if (signInType is SignInType.Password) {
             PasswordTextField(textFieldState = passwordTextFieldState, signIn = signIn)
@@ -269,7 +289,7 @@ fun PasswordTextField(
     imeAction: ImeAction,
     keyboardActions: KeyboardActions
 ) {
-    val showPassword = rememberSaveable { mutableStateOf(false) }
+    val showPassword = remember { mutableStateOf(false) }
     TextField(
         modifier = modifier,
         textFieldState = textFieldState,
@@ -359,20 +379,22 @@ class CodeTextFieldState :
 fun CodeTextField(
     modifier: Modifier = Modifier,
     textFieldState: TextFieldState = CodeTextFieldState(),
-    getPhoneCodeState: State = State.None,
+    fetchPhoneCodeState: State = State.None,
     fetchPhoneCode: () -> Unit = {},
-    signIn: () -> Unit = {}
+    signIn: () -> Unit = {},
+    remainTime: Int
 ) {
     CodeTextField(
         modifier = modifier,
         textFieldState = textFieldState,
-        getPhoneCodeState = getPhoneCodeState,
+        getPhoneCodeState = fetchPhoneCodeState,
         fetchPhoneCode = fetchPhoneCode,
         imeAction = ImeAction.Done,
         keyboardActions = KeyboardActions(onDone = {
             textFieldState.enableShowErrors()
             if (!textFieldState.isError) signIn()
-        })
+        }),
+        remainTime = remainTime
     )
 }
 
@@ -385,26 +407,16 @@ fun CodeTextField(
     imeAction: ImeAction,
     keyboardActions: KeyboardActions,
     fetchPhoneCode: () -> Unit = {},
-    getPhoneCodeState: State = State.None
+    getPhoneCodeState: State = State.None,
+    remainTime: Int = 0
 ) {
-    var remainingTime by remember { mutableStateOf(0) }
     val resources = LocalContext.current.resources
-    var showText by remember {
-        mutableStateOf(
-            resources.getString(R.string.getPhoneCode)
-        )
-    }
-    LaunchedEffect(getPhoneCodeState) {
-        if (getPhoneCodeState == State.Success && remainingTime == 0) {
-            remainingTime = 60
-            launch {
-                while (remainingTime > 0) {
-                    showText = resources.getString(R.string.resendAfter, remainingTime)
-                    delay(1000)
-                    remainingTime--
-                }
-                showText = resources.getString(R.string.resend)
-            }
+    var showText by remember { mutableStateOf(resources.getString(R.string.getPhoneCode)) }
+
+    LaunchedEffect(getPhoneCodeState, remainTime) {
+        if (getPhoneCodeState == State.Success) {
+            showText = if (remainTime == 0) resources.getString(R.string.resend)
+            else resources.getString(R.string.resendAfter, remainTime)
         }
     }
 
@@ -417,7 +429,7 @@ fun CodeTextField(
             TextButton(
                 modifier = Modifier.padding(end = 5.dp),
                 onClick = { fetchPhoneCode() },
-                enabled = getPhoneCodeState != State.Loading && remainingTime == 0,
+                enabled = getPhoneCodeState != State.Loading && remainTime == 0,
                 shape = RoundedCornerShape(5.dp)
             ) {
                 if (getPhoneCodeState == State.Loading) {

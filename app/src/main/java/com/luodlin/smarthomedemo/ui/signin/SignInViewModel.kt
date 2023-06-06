@@ -25,16 +25,11 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
     fun signIn(userName: String, verify: String, signInType: Int) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                _loginUiState.update {
-                    it.copy(
-                        signInUiState = State.Loading, errorMessages = null
-                    )
-                } //加载中
-                when (signInType) {    //登录操作
+                _loginUiState.update { it.copy(signInUiState = State.Loading, message = null) }
+                when (signInType) {
                     1 -> signInRepository.passwordSignIn(userName, verify)
                     2 -> signInRepository.phoneSignIn(userName, verify)
                 }
-                Log.i("SignInViewModel", "登录中")
             }
         }
     }
@@ -43,21 +38,20 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 _loginUiState.update {
-                    it.copy(
-                        fetchPhoneCodeState = State.Loading, errorMessages = null
-                    )
+                    it.copy(fetchPhoneCodeState = State.Loading, message = null)
                 }
+
                 when (val result = signInRepository.fetchPhoneCode(phone)) {
                     is Result.Error -> _loginUiState.update {
                         it.copy(
                             fetchPhoneCodeState = State.Failed,
-                            errorMessages = result.exception.message ?: "获取验证码未知错误"
+                            message = result.exception.message ?: "获取验证码未知错误"
                         )
                     }
 
                     is Result.Success -> _loginUiState.update {
                         it.copy(
-                            fetchPhoneCodeState = State.Success, errorMessages = "获取验证码成功"
+                            fetchPhoneCodeState = State.Success, message = "获取验证码成功"
                         )
                     }
                 }
@@ -65,6 +59,7 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     companion object {
         fun provideFactory(
             repository: SignInRepository,
@@ -77,20 +72,12 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
 
     init {
         viewModelScope.launch {
-            signInRepository.signInFlow.collect { signInResult ->
-                when (signInResult) {
-                    is Result.Error -> Log.i("SignInViewModel", "登录失败")
-                    is Result.Success -> Log.i("SignInViewModel", "登录成功")
-                }
+            signInRepository.signInFlow.collect { sign ->
                 _loginUiState.update {
-                    when (signInResult) {
-                        is Result.Error -> it.copy(
-                            signInUiState = State.Failed,
-                            errorMessages = signInResult.exception.message ?: "登录出现未知错误"
-                        )
-
-                        is Result.Success -> it.copy(
-                            signInUiState = State.Success, errorMessages = "登录成功"
+                    sign.run {
+                        it.copy(
+                            signInUiState = if (isSignIn) State.Success else State.Failed,
+                            message = message
                         )
                     }
                 }
@@ -99,7 +86,7 @@ class SignInViewModel(private val signInRepository: SignInRepository) : ViewMode
     }
 
     data class SignInUiState(
-        val signInUiState: State, val fetchPhoneCodeState: State, val errorMessages: String?
+        val signInUiState: State, val fetchPhoneCodeState: State, val message: String?
     )
 
 }

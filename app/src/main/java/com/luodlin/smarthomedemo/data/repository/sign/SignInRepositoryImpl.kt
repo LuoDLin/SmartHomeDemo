@@ -9,33 +9,48 @@ import com.luodlin.smarthomedemo.data.model.Sign
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
 
 class SignInRepositoryImpl(
     private val localDataSource: LocalDataSource, private val remoteDataSource: RemoteDataSource
 ) : SignInRepository {
 
     private val _signIn = MutableStateFlow(localDataSource.readSignInInfo())
-    override val signInFlow: Flow<Result<Sign>>
+    override val signInFlow: Flow<Sign>
         get() = _signIn
 
-    private fun NetworkSignIn.asSign(): Sign = Sign(signInType, token)
+    private fun NetworkSignIn.asSign(): Sign =
+        Sign(code == 200, data?.signInType, data?.token, message)
 
-    override suspend fun fetchPhoneCode(phone: String): Result<Nothing> =
-        remoteDataSource.fetchCode(phone)
+    override suspend fun fetchPhoneCode(phone: String): Result<Nothing> {
+        return try {
+            remoteDataSource.fetchCode(phone, 0).run {
+                if (code == 200) Result.Success()
+                else Result.Error(Exception(message))
+            }
+        } catch (e: Exception) {
+            Log.i("fetchPhoneCode", "" + e.message)
+            Result.Error(e)
+        }
+    }
 
     override suspend fun phoneSignIn(phone: String, code: String) {
-        delay(1500)
-        Log.i("SignInRepositoryImpl","phoneSignIn")
-        val result = remoteDataSource.phoneSignIn(phone, code)
-        emitNetWorkSignInResult(result)
+        _signIn.emit(
+            try {
+                remoteDataSource.phoneSignIn(phone, code).asSign()
+            } catch (e: Exception) {
+                Sign(message = e.message)
+            }
+        )
     }
 
     override suspend fun passwordSignIn(phone: String, password: String) {
-        delay(1500)
-        Log.i("SignInRepositoryImpl","passwordSignIn")
-        val result = remoteDataSource.passwordSignIn(phone, password)
-        emitNetWorkSignInResult(result)
+        _signIn.emit(
+            try {
+                remoteDataSource.passwordSignIn(phone, password).asSign()
+            } catch (e: Exception) {
+                Sign(message = e.message)
+            }
+        )
     }
 
     override suspend fun logout(): Result<Nothing> {
@@ -43,17 +58,6 @@ class SignInRepositoryImpl(
         return Result.Success()
     }
 
-    private suspend fun emitNetWorkSignInResult(data: Result<NetworkSignIn>) {
-        val result = when (data) {
-            is Result.Error -> Result.Error(data.exception)
-            is Result.Success -> Result.Success(data.data!!.asSign())
-        }
 
-        when(result){
-            is Result.Error -> Log.i("SignInRepositoryImpl","emitNetWorkSignInResult:Error")
-            is Result.Success -> Log.i("SignInRepositoryImpl","emitNetWorkSignInResult:Success")
-        }
-        _signIn.value = result
-        localDataSource.saveSignInInfo(result)
-    }
 }
+

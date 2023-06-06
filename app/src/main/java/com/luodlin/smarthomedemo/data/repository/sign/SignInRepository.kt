@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface SignInRepository {
 
-    val signInFlow: Flow<Result<Sign>>
+    val signInFlow: Flow<Sign>
 
     /**
      * 获取验证码

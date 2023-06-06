@@ -4,6 +4,6 @@ import com.luodlin.smarthomedemo.data.Result
 import com.luodlin.smarthomedemo.data.model.Sign
 
 interface LocalDataSource {
-    suspend fun saveSignInInfo(data: Result<Sign>)
-    fun readSignInInfo(): Result<Sign>
+    suspend fun saveSignInInfo(data: Sign)
+    fun readSignInInfo(): Sign
 }

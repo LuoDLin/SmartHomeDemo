@@ -4,12 +4,10 @@ import com.luodlin.smarthomedemo.data.Result
 import com.luodlin.smarthomedemo.data.model.Sign
 
 class FakeLocalDataSource : LocalDataSource {
-    override suspend fun saveSignInInfo(data: Result<Sign>) {
+    override suspend fun saveSignInInfo(data: Sign) {
     }
 
+    override fun readSignInInfo(): Sign = Sign(isSignIn = false, message = "首次登录")
 
-    override fun readSignInInfo(): Result<Sign> {
-        return Result.Success(Sign(1, "ajiogaidgoa"))
-    }
 }
 
